@@ -3,7 +3,13 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use((req, res, next) => { res.header('Access-Control-Allow-Origin', '*'); next(); });
+// CORS مقيّد: تطبيق سطح المكتب يرسل بلا Origin (مسموح)؛ المتصفحات تُمنع لتفادي استنزاف الموارد
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin) { next(); return; } // طلب من تطبيق Electron / خادم — مسموح
+  res.header('Access-Control-Allow-Origin', origin); // نعكسه فقط للطلبات المعروفة
+  next();
+});
 
 let cache = {
   tiktok: { trends: [], updatedAt: null, source: null },
@@ -77,7 +83,14 @@ app.get('/', (req, res) => res.json({
   tiktok_source: cache.tiktok.source,
   tiktok_count: cache.tiktok.trends.length,
 }));
+let lastRefresh = 0;
 app.get('/api/refresh', async (req, res) => {
+  // تهدئة: مرة كل 60 ثانية كحد أقصى — يمنع إغراق المصادر الخارجية
+  const now = Date.now();
+  if (now - lastRefresh < 60 * 1000) {
+    return res.json({ success: true, throttled: true, count: cache.tiktok.trends.length, source: cache.tiktok.source });
+  }
+  lastRefresh = now;
   await updateTikTok();
   res.json({ success: true, count: cache.tiktok.trends.length, source: cache.tiktok.source });
 });
